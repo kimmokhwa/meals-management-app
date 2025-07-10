@@ -11,13 +11,16 @@ const HolidayTab = () => {
   const [loading, setLoading] = useState(true)
   const [showAddModal, setShowAddModal] = useState(false)
   const [selectedDate, setSelectedDate] = useState(null)
-  const [viewMode, setViewMode] = useState('calendar') // 'calendar' 또는 'table'
   const [newHoliday, setNewHoliday] = useState({
     employee_id: '',
     holiday_type: ''
   })
+  // 다중 선택을 위한 상태 추가
+  const [selectedEmployees, setSelectedEmployees] = useState({})
+  const [expandedTeams, setExpandedTeams] = useState({})
+  
   // 드롭다운 상태 관리
-  const [activeDropdown, setActiveDropdown] = useState(null) // {employeeId, date} 형태
+  const [activeDropdown, setActiveDropdown] = useState(null)
   
   // 월별 잠금 상태 관리
   const [isCurrentMonthLocked, setIsCurrentMonthLocked] = useState(false)
@@ -87,6 +90,12 @@ const HolidayTab = () => {
     }
   }, [dateCalculations])
 
+  // 초기 데이터 로딩
+  useEffect(() => {
+    fetchEmployees()
+    fetchHolidays()
+  }, [fetchEmployees, fetchHolidays, currentDate])
+
   // 휴무 추가
   const addHoliday = useCallback(async () => {
     // 잠금된 월에서는 추가 불가
@@ -125,18 +134,21 @@ const HolidayTab = () => {
       return
     }
     
-    if (!confirm('정말로 이 휴무를 삭제하시겠습니까?')) return
-    
     try {
+      if (!window.confirm('정말로 이 휴무를 삭제하시겠습니까?')) return
+      
       const { error } = await supabase
         .from('holidays')
         .delete()
         .eq('id', id)
       
       if (error) throw error
-      fetchHolidays()
+      
+      // 성공적으로 삭제된 후 데이터 다시 불러오기
+      await fetchHolidays()
     } catch (error) {
       console.error('휴무 삭제 실패:', error)
+      alert('휴무 삭제에 실패했습니다.')
     }
   }, [fetchHolidays, isCurrentMonthLocked])
 
@@ -247,7 +259,8 @@ const HolidayTab = () => {
   const handleModalClose = useCallback(() => {
     setShowAddModal(false)
     setSelectedDate(null)
-    setNewHoliday({ employee_id: '', holiday_type: '' })
+    setSelectedEmployees({})
+    setExpandedTeams({})
   }, [])
 
   // 직원 이름 조회 (메모이제이션)
@@ -492,76 +505,118 @@ const HolidayTab = () => {
     }
   }, [holidays, closeDropdown, fetchHolidays, isCurrentMonthLocked])
 
-  // 달력 다운로드 함수 (PDF)
-  const downloadCalendar = useCallback(async () => {
+  // PDF 출력 함수
+  const handlePrintPDF = useCallback(async () => {
     try {
-      // 현재 뷰 모드에 따라 적절한 요소 선택
-      const targetRef = viewMode === 'table' ? tableRef : calendarRef
+      const year = currentDate.getFullYear();
+      const month = currentDate.getMonth() + 1;
+      const fileName = `휴무표_${year}년_${month}월.pdf`;
       
-      if (!targetRef.current) {
-        alert('다운로드할 요소를 찾을 수 없습니다.')
-        return
+      // 달력 영역 요소 선택
+      const targetElement = calendarRef.current;
+      
+      if (!targetElement) {
+        console.error('달력 요소를 찾을 수 없습니다.');
+        alert('PDF 생성에 실패했습니다.');
+        return;
       }
 
-      // 드롭다운 메뉴 닫기
-      setActiveDropdown(null)
-      
-      // 잠시 기다려서 드롭다운이 완전히 닫힌 후 캡처
-      await new Promise(resolve => setTimeout(resolve, 100))
-
-      // 선택된 요소 캡처
-      const canvas = await html2canvas(targetRef.current, {
-        scale: 2, // 고해상도
+      // html2canvas 옵션 설정
+      const scale = 3; // 해상도를 3배로 증가
+      const canvas = await html2canvas(targetElement, {
+        scale: scale,
         useCORS: true,
-        allowTaint: true,
+        logging: false,
         backgroundColor: '#ffffff',
-        width: targetRef.current.scrollWidth,
-        height: targetRef.current.scrollHeight
-      })
+        width: targetElement.scrollWidth,
+        height: targetElement.scrollHeight,
+        onclone: (clonedDoc) => {
+          // 클론된 문서의 스타일 조정
+          const cells = clonedDoc.getElementsByTagName('td');
+          Array.from(cells).forEach(cell => {
+            cell.style.whiteSpace = 'normal';
+            cell.style.wordBreak = 'break-all';
+            cell.style.minWidth = '50px';
+          });
+        }
+      });
 
       // PDF 생성
-      const imgData = canvas.toDataURL('image/png')
-      const pdf = new jsPDF({
-        orientation: 'landscape', // 가로 방향
-        unit: 'mm',
-        format: 'a4'
-      })
-
-      // 이미지 크기 계산
-      const imgWidth = 297 // A4 가로 크기 (mm)
-      const pageHeight = 210 // A4 세로 크기 (mm)
-      const imgHeight = (canvas.height * imgWidth) / canvas.width
-      let heightLeft = imgHeight
-
-      let position = 0
-
-      // 첫 페이지에 이미지 추가
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
-      heightLeft -= pageHeight
-
-      // 이미지가 한 페이지보다 클 경우 페이지 추가
-      while (heightLeft >= 0) {
-        position = heightLeft - imgHeight
-        pdf.addPage()
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
-        heightLeft -= pageHeight
-      }
-
+      const imgWidth = 210; // A4 가로 크기 (mm)
+      const pageHeight = 297; // A4 세로 크기 (mm)
+      const imgHeight = canvas.height * imgWidth / canvas.width;
+      
+      const pdf = new jsPDF('p', 'mm', 'a4'); // 세로 방향으로 설정
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, imgWidth, imgHeight);
+      
       // PDF 다운로드
-      pdf.save(`휴무달력_${currentMonthString}.pdf`)
+      pdf.save(fileName);
     } catch (error) {
-      console.error('달력 다운로드 실패:', error)
-      alert('달력 다운로드 중 오류가 발생했습니다.')
+      console.error('PDF 생성 실패:', error);
+      alert('PDF 생성에 실패했습니다.');
     }
-  }, [currentMonthString, viewMode])
+  }, [currentDate]);
 
-  useEffect(() => {
-    fetchEmployees()
-  }, [fetchEmployees])
+  // 팀 펼치기/접기 토글
+  const toggleTeam = useCallback((team) => {
+    setExpandedTeams(prev => ({
+      ...prev,
+      [team]: !prev[team]
+    }))
+  }, [])
 
-  useEffect(() => {
-    fetchHolidays()
-  }, [fetchHolidays])
+  // 직원 선택/해제
+  const toggleEmployee = useCallback((employeeId) => {
+    setSelectedEmployees(prev => ({
+      ...prev,
+      [employeeId]: prev[employeeId] ? null : ''
+    }))
+  }, [])
+
+  // 선택된 직원의 휴무 유형 변경
+  const changeEmployeeHolidayType = useCallback((employeeId, holidayType) => {
+    setSelectedEmployees(prev => ({
+      ...prev,
+      [employeeId]: holidayType
+    }))
+  }, [])
+
+  // 다중 휴무 추가
+  const addMultipleHolidays = useCallback(async () => {
+    if (isCurrentMonthLocked) {
+      alert('이 월은 잠금되어 수정할 수 없습니다.')
+      return
+    }
+
+    const holidaysToAdd = Object.entries(selectedEmployees)
+      .filter(([_, holidayType]) => holidayType) // 휴무 유형이 선택된 직원만
+      .map(([employeeId, holidayType]) => ({
+        employee_id: employeeId,
+        holiday_date: selectedDate.toISOString().split('T')[0],
+        holiday_type: holidayType
+      }))
+
+    if (holidaysToAdd.length === 0) {
+      alert('휴무를 추가할 직원을 선택하세요.')
+      return
+    }
+
+    try {
+      const { error } = await supabase
+        .from('holidays')
+        .insert(holidaysToAdd)
+      
+      if (error) throw error
+      
+      setSelectedEmployees({})
+      setShowAddModal(false)
+      setSelectedDate(null)
+      fetchHolidays()
+    } catch (error) {
+      console.error('휴무 추가 실패:', error)
+      alert('휴무 추가 중 오류가 발생했습니다.')
+    }
+  }, [selectedDate, selectedEmployees, fetchHolidays, isCurrentMonthLocked])
 
   // 드롭다운 외부 클릭 시 닫기
   useEffect(() => {
@@ -598,19 +653,36 @@ const HolidayTab = () => {
           <Calendar className="w-6 h-6 text-teal-600" />
           <h2 className="text-xl font-bold text-gray-900">휴무 달력</h2>
         </div>
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center space-x-2">
+          {/* PDF 출력 버튼 */}
           <button
-            onClick={() => setViewMode(viewMode === 'calendar' ? 'table' : 'calendar')}
-            className="btn btn-secondary flex items-center space-x-2"
+            onClick={handlePrintPDF}
+            className="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 flex items-center space-x-1"
           >
-            {viewMode === 'calendar' ? '표 보기' : '달력 보기'}
+            <Download className="w-4 h-4" />
+            <span>PDF 출력</span>
           </button>
+          
+          {/* 잠금 토글 버튼 */}
           <button
             onClick={toggleMonthLock}
-            className={`btn ${isCurrentMonthLocked ? 'btn-danger' : 'btn-secondary'} flex items-center space-x-2`}
+            className={`px-3 py-2 rounded flex items-center space-x-1 ${
+              isCurrentMonthLocked
+                ? 'bg-red-500 hover:bg-red-600'
+                : 'bg-green-500 hover:bg-green-600'
+            } text-white`}
           >
-            {isCurrentMonthLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
-            <span>{isCurrentMonthLocked ? '잠금 해제' : '잠금'}</span>
+            {isCurrentMonthLocked ? (
+              <>
+                <Lock className="w-4 h-4" />
+                <span>잠금됨</span>
+              </>
+            ) : (
+              <>
+                <Unlock className="w-4 h-4" />
+                <span>잠금해제</span>
+              </>
+            )}
           </button>
         </div>
       </div>
@@ -636,269 +708,250 @@ const HolidayTab = () => {
 
       {/* 메인 컨텐츠 */}
       <div className="bg-white rounded-lg shadow-sm">
-        {viewMode === 'calendar' ? (
-          <div className="p-4" ref={calendarRef}>
-            {/* 정말 달력처럼 표시 */}
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse">
-                <thead>
-                  <tr>
-                    <th className="bg-gray-50 border border-gray-200 p-2 text-center font-medium text-gray-900" colSpan="7">
-                      {/* 월~토 요일 헤더 */}
-                    </th>
-                  </tr>
-                  <tr>
-                    <th className="bg-gray-50 border border-gray-200 p-2 text-left font-medium text-gray-900 w-24">팀</th>
-                    <th className="bg-gray-50 border border-gray-200 p-2 text-center font-medium">월</th>
-                    <th className="bg-gray-50 border border-gray-200 p-2 text-center font-medium">화</th>
-                    <th className="bg-gray-50 border border-gray-200 p-2 text-center font-medium">수</th>
-                    <th className="bg-gray-50 border border-gray-200 p-2 text-center font-medium">목</th>
-                    <th className="bg-gray-50 border border-gray-200 p-2 text-center font-medium">금</th>
-                    <th className="bg-gray-50 border border-gray-200 p-2 text-center font-medium text-blue-500">토</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(() => {
-                    const year = currentDate.getFullYear()
-                    const month = currentDate.getMonth()
-                    const firstDay = new Date(year, month, 1)
-                    const lastDay = new Date(year, month + 1, 0)
-                    
-                    // 1일의 요일 확인 (0=일, 1=월, ..., 6=토)
-                    let firstDayOfWeek = firstDay.getDay()
-                    // 일요일이면 다음날(월요일)부터 시작
-                    if (firstDayOfWeek === 0) {
-                      firstDayOfWeek = 1
-                    }
-                    
-                    // 달력 배열 생성
-                    const calendarDays = []
-                    let dayCounter = 1
-                    
-                    // 주차별로 달력 생성
-                    while (dayCounter <= lastDay.getDate()) {
-                      const week = []
-                      
-                      // 월~토 (1~6)
-                      for (let dayOfWeek = 1; dayOfWeek <= 6; dayOfWeek++) {
-                        if (dayCounter === 1 && dayOfWeek < firstDayOfWeek) {
-                          // 첫 주의 빈 날짜
-                          week.push(null)
-                        } else if (dayCounter > lastDay.getDate()) {
-                          // 마지막 주의 빈 날짜
-                          week.push(null)
-                        } else {
-                          // 실제 날짜
-                          const date = new Date(year, month, dayCounter)
-                          if (date.getDay() !== 0) { // 일요일 제외
-                            week.push(date)
-                            dayCounter++
-                          } else {
-                            // 일요일은 건너뛰고 다음 날로
-                            dayCounter++
-                            if (dayCounter <= lastDay.getDate()) {
-                              week.push(new Date(year, month, dayCounter))
-                              dayCounter++
-                            } else {
-                              week.push(null)
-                            }
-                          }
-                        }
-                      }
-                      
-                      calendarDays.push(week)
-                    }
-                    
-                    // 팀별 색상 설정
-                    const teamColors = {
-                      '의국팀': 'bg-yellow-50 border-l-4 border-yellow-400',
-                      '상담팀': 'bg-green-50 border-l-4 border-green-400',
-                      '코디팀': 'bg-blue-50 border-l-4 border-blue-400',
-                      '간호팀': 'bg-orange-50 border-l-4 border-orange-400',
-                      '피부팀': 'bg-red-50 border-l-4 border-red-400',
-                      '경영지원팀': 'bg-gray-50 border-l-4 border-gray-400'
-                    }
-                    
-                    return calendarDays.map((week, weekIndex) => (
-                      <React.Fragment key={weekIndex}>
-                        {/* 날짜 행 */}
-                        <tr>
-                          <td className="bg-gray-100 border border-gray-200 p-1 text-center font-medium text-sm">
-                            {weekIndex + 1}주
-                          </td>
-                          {week.map((date, dayIndex) => (
-                            <td key={dayIndex} className="bg-gray-100 border border-gray-200 p-1 text-center font-medium text-sm">
-                              {date ? date.getDate() : ''}
-                            </td>
-                          ))}
-                        </tr>
-                        {/* 팀별 행 */}
-                        {TEAMS.map((team) => (
-                          <tr key={`${weekIndex}-${team}`}>
-                            <td className={`border border-gray-200 p-2 font-medium ${teamColors[team]}`}>
-                              {team}
-                            </td>
-                            {week.map((date, dayIndex) => {
-                              if (!date) {
-                                return <td key={dayIndex} className="border border-gray-200 p-1 bg-gray-50"></td>
-                              }
-                              
-                              const holidaysForDate = getHolidaysForDate(date)
-                              const teamHolidays = holidaysForDate.filter(h => {
-                                const employee = employees.find(e => e.id === h.employee_id)
-                                return employee?.team === team
-                              })
-                              
-                              return (
-                                <td 
-                                  key={dayIndex}
-                                  className={`border border-gray-200 p-1 text-xs ${teamColors[team].replace('border-l-4', '')} cursor-pointer hover:bg-opacity-75`}
-                                  onClick={() => handleDateClick(date)}
-                                >
-                                  {teamHolidays.length > 0 ? (
-                                    <div className="space-y-0.5">
-                                      {teamHolidays.slice(0, 3).map((holiday) => {
-                                        const employee = employees.find(e => e.id === holiday.employee_id)
-                                        return (
-                                          <div key={holiday.id} className="flex items-center justify-between">
-                                            <span className="truncate">
-                                              {employee?.name}({getHolidayTypeAbbr(holiday.holiday_type)})
-                                            </span>
-                                            {!isCurrentMonthLocked && (
-                                              <button
-                                                onClick={(e) => {
-                                                  e.stopPropagation()
-                                                  deleteHoliday(holiday.id)
-                                                }}
-                                                className="ml-1 text-gray-400 hover:text-red-600 flex-shrink-0"
-                                              >
-                                                <X className="w-3 h-3" />
-                                              </button>
-                                            )}
-                                          </div>
-                                        )
-                                      })}
-                                    </div>
-                                  ) : (
-                                    <div className="text-center text-gray-400">-</div>
-                                  )}
-                                </td>
-                              )
-                            })}
-                          </tr>
-                        ))}
-                      </React.Fragment>
-                    ))
-                  })()}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ) : (
-          <div className="p-4">
-            {/* 표 뷰 */}
-            <table className="table">
+        <div className="p-4" ref={calendarRef}>
+          {/* 정말 달력처럼 표시 */}
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse border-2 border-gray-400 table-fixed">
               <thead>
                 <tr>
-                  <th>팀</th>
-                  <th>이름</th>
-                  {Array.from({ length: new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate() }, (_, i) => (
-                    <th key={i} className="text-center w-8">
-                      {i + 1}
-                    </th>
-                  ))}
+                  <th className="bg-gray-50 border border-gray-400 p-1 text-center font-medium text-gray-900 w-12 text-base">팀</th>
+                  <th className="bg-gray-50 border border-gray-400 p-1 text-center font-medium text-base">월</th>
+                  <th className="bg-gray-50 border border-gray-400 p-1 text-center font-medium text-base">화</th>
+                  <th className="bg-gray-50 border border-gray-400 p-1 text-center font-medium text-base">수</th>
+                  <th className="bg-gray-50 border border-gray-400 p-1 text-center font-medium text-base">목</th>
+                  <th className="bg-gray-50 border border-gray-400 p-1 text-center font-medium text-base">금</th>
+                  <th className="bg-gray-50 border border-gray-400 p-1 text-center font-medium text-blue-500 text-base">토</th>
                 </tr>
               </thead>
               <tbody>
-                {employees.map(employee => (
-                  <tr key={employee.id} className="border-t border-gray-200">
-                    <td className="font-medium">{employee.team}</td>
-                    <td className="font-medium">{employee.name}</td>
-                    {Array.from({ length: new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate() }, (_, i) => {
-                      const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), i + 1)
-                      const holidays = getHolidaysForDate(date)
-                      const employeeHoliday = holidays.find(h => h.employee_id === employee.id)
+                {(() => {
+                  const year = currentDate.getFullYear()
+                  const month = currentDate.getMonth()
+                  const firstDay = new Date(year, month, 1)
+                  const lastDay = new Date(year, month + 1, 0)
+                  
+                  // 1일의 요일 확인 (0=일, 1=월, ..., 6=토)
+                  let firstDayOfWeek = firstDay.getDay()
+                  // 일요일이면 다음날(월요일)부터 시작
+                  if (firstDayOfWeek === 0) {
+                    firstDayOfWeek = 1
+                  }
+                  
+                  // 달력 배열 생성
+                  const calendarDays = []
+                  let dayCounter = 1
+                  
+                  // 주차별로 달력 생성
+                  while (dayCounter <= lastDay.getDate()) {
+                    const week = []
+                    
+                    // 월~토 (1~6)
+                    for (let dayOfWeek = 1; dayOfWeek <= 6; dayOfWeek++) {
+                      if (dayCounter === 1 && dayOfWeek < firstDayOfWeek) {
+                        // 첫 주의 빈 날짜
+                        week.push(null)
+                      } else if (dayCounter > lastDay.getDate()) {
+                        // 마지막 주의 빈 날짜
+                        week.push(null)
+                      } else {
+                        // 실제 날짜
+                        const date = new Date(year, month, dayCounter)
+                        if (date.getDay() !== 0) { // 일요일 제외
+                          week.push(date)
+                          dayCounter++
+                        } else {
+                          // 일요일은 건너뛰고 다음 날로
+                          dayCounter++
+                          if (dayCounter <= lastDay.getDate()) {
+                            week.push(new Date(year, month, dayCounter))
+                            dayCounter++
+                          } else {
+                            week.push(null)
+                          }
+                        }
+                      }
+                    }
+                    
+                    calendarDays.push(week)
+                  }
+                  
+                  // 팀별 색상 설정
+                  const TEAMS = [
+                    '의국팀',
+                    '코디팀',
+                    '상담팀',
+                    '간호팀',
+                    '피부팀',
+                    '경영지원팀'
+                  ];
 
-                      return (
-                        <td key={i} className="text-center">
-                          {employeeHoliday && (
-                            <div className={`text-xs p-1 rounded ${getHolidayColor(employeeHoliday.holiday_type)}`}>
-                              {getHolidayShortText(employeeHoliday.holiday_type)}
-                            </div>
-                          )}
+                  const teamColors = {
+                    '의국팀': 'bg-[#E8F5E9]',
+                    '코디팀': 'bg-[#E3F2FD]',
+                    '상담팀': 'bg-[#FFF3E0]',
+                    '간호팀': 'bg-[#F3E5F5]',
+                    '피부팀': 'bg-[#FCE4EC]',
+                    '경영지원팀': 'bg-[#FAFAFA]'
+                  };
+                  
+                  return calendarDays.map((week, weekIndex) => (
+                    <React.Fragment key={weekIndex}>
+                      {/* 날짜 행 */}
+                      <tr>
+                        <td className="bg-gray-200 border border-gray-400 px-1 py-0.5 text-center font-medium text-sm h-[48px]">
+                          {weekIndex + 1}주
                         </td>
-                      )
-                    })}
-                  </tr>
-                ))}
+                        {week.map((date, dayIndex) => (
+                          <td key={dayIndex} className="bg-gray-200 border border-gray-400 px-1 py-0.5 text-center font-medium text-sm h-[48px]">
+                            {date ? date.getDate() : ''}
+                          </td>
+                        ))}
+                      </tr>
+                      {/* 팀별 행 */}
+                      {TEAMS.map((team) => (
+                        <tr key={`${weekIndex}-${team}`}>
+                          <td className={`bg-white border border-gray-400 px-1 py-0.5 font-medium text-[0.42rem] h-[48px] ${teamColors[team]}`}>
+                            {team}
+                          </td>
+                          {week.map((date, dayIndex) => {
+                            if (!date) {
+                              return <td key={dayIndex} className="bg-white border border-gray-400 p-1"></td>
+                            }
+                            
+                            const holidaysForDate = getHolidaysForDate(date)
+                            const teamHolidays = holidaysForDate.filter(h => {
+                              const employee = employees.find(e => e.id === h.employee_id)
+                              return employee?.team === team
+                            })
+                            
+                            return (
+                              <td 
+                                key={dayIndex}
+                                className={`bg-white border border-gray-400 px-1 py-0.5 text-xs cursor-pointer hover:bg-gray-50 h-[48px] min-w-[50px] break-all ${teamColors[team].replace('border-l-4', '')}`}
+                                onClick={() => handleDateClick(date)}
+                              >
+                                <div className="flex flex-col h-full">
+                                  {teamHolidays.length > 0 && (
+                                    <div className="grid grid-cols-2 gap-0.5 content-center justify-center h-full">
+                                      {teamHolidays.slice(0, 4).map((holiday, index) => {
+                                        const employee = employees.find(e => e.id === holiday.employee_id);
+                                        if (!employee) return null;
+                                        
+                                        return (
+                                          <div
+                                            key={holiday.id}
+                                            className={`text-[0.78rem] flex items-center justify-center ${getHolidayTypeStyle(holiday.holiday_type)}`}
+                                            title={`${employee.name} - ${HOLIDAY_TYPES[holiday.holiday_type]}`}
+                                          >
+                                            <span className="flex items-center">
+                                              {employee.name}{getHolidayTypeAbbr(holiday.holiday_type)}
+                                              {!isCurrentMonthLocked && (
+                                                <button
+                                                  onClick={(e) => {
+                                                    e.preventDefault()
+                                                    e.stopPropagation()
+                                                    if (window.confirm('정말로 이 휴무를 삭제하시겠습니까?')) {
+                                                      deleteHoliday(holiday.id)
+                                                    }
+                                                  }}
+                                                  className="text-gray-400 hover:text-red-500 ml-1 opacity-50 hover:opacity-100 transition-opacity"
+                                                >
+                                                  <X className="w-3 h-3" />
+                                                </button>
+                                              )}
+                                            </span>
+                                          </div>
+                                        );
+                                      })}
+                                      {teamHolidays.length > 4 && (
+                                        <div className="text-[0.78rem] text-gray-500 col-span-2 text-center">
+                                          +{teamHolidays.length - 4}명
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+                            )
+                          })}
+                        </tr>
+                      ))}
+                    </React.Fragment>
+                  ))
+                })()}
               </tbody>
             </table>
           </div>
-        )}
+        </div>
       </div>
 
       {/* 휴무 추가 모달 */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full p-6">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-semibold">
                 휴무 추가 - {selectedDate.getFullYear()}년 {selectedDate.getMonth() + 1}월 {selectedDate.getDate()}일
               </h3>
               <button
-                onClick={() => setShowAddModal(false)}
+                onClick={handleModalClose}
                 className="text-gray-400 hover:text-gray-600"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  직원
-                </label>
-                <select
-                  value={newHoliday.employee_id}
-                  onChange={handleEmployeeChange}
-                  className="select"
-                >
-                  <option value="">직원 선택</option>
-                  {employees.map(employee => (
-                    <option key={employee.id} value={employee.id}>
-                      {employee.name} ({employee.team})
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  휴무 유형
-                </label>
-                <select
-                  value={newHoliday.holiday_type}
-                  onChange={handleHolidayTypeChange}
-                  className="select"
-                >
-                  <option value="">휴무 유형 선택</option>
-                  {HOLIDAY_TYPES.map(type => (
-                    <option key={type} value={type}>{type}</option>
-                  ))}
-                </select>
-              </div>
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto">
+              {Object.entries(employeesByTeam).map(([team, teamEmployees]) => (
+                <div key={team} className="border rounded-lg p-4">
+                  <button
+                    onClick={() => toggleTeam(team)}
+                    className="w-full flex items-center justify-between text-left font-medium p-2 hover:bg-gray-50 rounded"
+                  >
+                    <span>{team} ({teamEmployees.length}명)</span>
+                    <ChevronRight className={`w-5 h-5 transform transition-transform ${expandedTeams[team] ? 'rotate-90' : ''}`} />
+                  </button>
+                  {expandedTeams[team] && (
+                    <div className="mt-2 space-y-2">
+                      {teamEmployees.map(employee => (
+                        <div key={employee.id} className="flex items-center space-x-2 p-2 hover:bg-gray-50 rounded">
+                          <input
+                            type="checkbox"
+                            checked={selectedEmployees[employee.id] !== undefined}
+                            onChange={() => toggleEmployee(employee.id)}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="flex-grow">{employee.name}</span>
+                          {selectedEmployees[employee.id] !== undefined && (
+                            <select
+                              value={selectedEmployees[employee.id] || ''}
+                              onChange={(e) => changeEmployeeHolidayType(employee.id, e.target.value)}
+                              className="select select-sm"
+                            >
+                              <option value="">휴무 유형 선택</option>
+                              {HOLIDAY_TYPES.map(type => (
+                                <option key={type} value={type}>{type}</option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
             <div className="mt-6 flex justify-end space-x-3">
               <button
-                onClick={() => setShowAddModal(false)}
+                onClick={handleModalClose}
                 className="btn btn-secondary"
               >
                 취소
               </button>
               <button
-                onClick={addHoliday}
-                disabled={!newHoliday.employee_id || !newHoliday.holiday_type}
+                onClick={addMultipleHolidays}
                 className="btn btn-primary"
               >
-                추가
+                일괄 추가
               </button>
             </div>
           </div>
@@ -970,16 +1023,33 @@ const getHolidayColor = (holidayType) => {
 
 // 휴무 타입 약어 변환
 const getHolidayTypeAbbr = (holidayType) => {
-  const abbrs = {
-    '휴무': '휴',
-    '연차': '연',
-    '오전반차': '오전',
-    '오후반차': '오후',
-    '오전+오후반차': '전',
-    '병가': '병',
-    '결근': '결'
+  switch (holidayType) {
+    case '연차':
+      return '(연)'
+    case '오전반차':
+      return '(오전)'
+    case '오후반차':
+      return '(오후)'
+    case '오전+오후반차':
+      return '(전)'
+    case '병가':
+      return '(병)'
+    case '결근':
+      return '(결)'
+    default:
+      return ''
   }
-  return abbrs[holidayType] || holidayType
+}
+
+// 휴무 타입별 스타일 클래스
+const getHolidayTypeStyle = (holidayType) => {
+  const styles = {
+    '연차': 'text-red-600 font-extrabold',
+    '오전+오후반차': 'text-red-600 font-extrabold',
+    '결근': 'text-yellow-600 font-extrabold',
+    '휴무': ''  // 휴무는 기본 스타일
+  }
+  return styles[holidayType] || ''
 }
 
 // 해당 월의 일수 구하기
@@ -1000,5 +1070,97 @@ const getHolidayShortText = (holidayType) => {
   }
   return shortTexts[holidayType] || '?'
 }
+
+// 휴무 타입 표시 함수
+const getHolidayTypeDisplay = (type) => {
+  switch (type) {
+    case '연차':
+      return '(연)'
+    case '오전반차':
+      return '(오전)'
+    case '오후반차':
+      return '(오후)'
+    case '오전+오후반차':
+      return '(전)'
+    case '병가':
+      return '(병)'
+    case '결근':
+      return '(결)'
+    default:
+      return ''
+  }
+}
+
+// 날짜 셀에 표시될 직원 휴무 정보 렌더링
+const renderDateCell = (date) => {
+  const holidays = getHolidaysForDate(date)
+  const dayStyle = getDayStyle(date)
+  const isCurrentMonth = date.getMonth() === currentDate.getMonth()
+  
+  return (
+    <td
+      key={date.toISOString()}
+      className={`border border-gray-300 p-1 align-top ${
+        isCurrentMonth ? 'bg-white' : 'bg-gray-50'
+      } ${dayStyle}`}
+      onClick={() => handleDateClick(date)}
+    >
+      <div className="flex justify-between items-start">
+        <span className="text-sm font-semibold text-gray-900">{date.getDate()}</span>
+      </div>
+      <div className="mt-1">
+        {holidays.map(holiday => {
+          const employee = employees.find(e => e.id === holiday.employee_id)
+          if (!employee) return null
+          
+          return (
+            <div key={holiday.id} className="text-sm font-medium text-gray-900 whitespace-nowrap">
+              <span className="flex items-center">
+                {employee.name}{getHolidayTypeAbbr(holiday.holiday_type)}
+                {!isCurrentMonthLocked && (
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      if (window.confirm('정말로 이 휴무를 삭제하시겠습니까?')) {
+                        deleteHoliday(holiday.id)
+                      }
+                    }}
+                    className="text-gray-400 hover:text-red-500 ml-1 opacity-50 hover:opacity-100 transition-opacity"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    </td>
+  )
+}
+
+// 주 표시 행 렌더링
+const renderWeekRow = () => (
+  <tr className="bg-gray-200">
+    <th className="border border-gray-300 p-2 text-sm font-bold text-gray-900">일</th>
+    <th className="border border-gray-300 p-2 text-sm font-bold text-gray-900">월</th>
+    <th className="border border-gray-300 p-2 text-sm font-bold text-gray-900">화</th>
+    <th className="border border-gray-300 p-2 text-sm font-bold text-gray-900">수</th>
+    <th className="border border-gray-300 p-2 text-sm font-bold text-gray-900">목</th>
+    <th className="border border-gray-300 p-2 text-sm font-bold text-gray-900">금</th>
+    <th className="border border-gray-300 p-2 text-sm font-bold text-gray-900">토</th>
+  </tr>
+)
+
+// 팀 헤더 렌더링
+const renderTeamHeader = (team) => (
+  <th
+    className="border border-gray-300 p-2 text-center bg-gray-100"
+    style={{ width: '120px', minWidth: '120px' }}
+  >
+    <div className="font-bold text-gray-900">{team}</div>
+  </th>
+)
 
 export default HolidayTab 

@@ -70,12 +70,12 @@ const CalculationTab = () => {
     const leaveDate = employee.leave_date ? new Date(employee.leave_date) : null
     
     if (joinDate > lastDay || (leaveDate && leaveDate < firstDay)) {
-      return { workDays: 0, holidayDays: 0, mealAmount: 0, details: [] }
+      return { workDays: 0, afternoonHalfDays: 0, mealAmount: 0, details: [] }
     }
 
     const workDetails = []
     let workDays = 0
-    let holidayDays = 0
+    let afternoonHalfDays = 0
 
     // 해당 월의 모든 날짜를 체크
     for (let d = new Date(firstDay); d <= lastDay; d.setDate(d.getDate() + 1)) {
@@ -95,7 +95,6 @@ const CalculationTab = () => {
 
       // 일요일은 자동 휴무 (식대 없음)
       if (dayOfWeek === 0) {
-        holidayDays++
         workDetails.push({
           date: dateStr,
           day: dayOfWeek,
@@ -111,14 +110,22 @@ const CalculationTab = () => {
       )
 
       if (employeeHoliday) {
-        holidayDays++
-        const amount = getHolidayMealAmount(employeeHoliday.holiday_type)
-        workDetails.push({
-          date: dateStr,
-          day: dayOfWeek,
-          status: employeeHoliday.holiday_type,
-          amount: amount
-        })
+        if (employeeHoliday.holiday_type === '오후반차') {
+          afternoonHalfDays++
+          workDetails.push({
+            date: dateStr,
+            day: dayOfWeek,
+            status: '오후반차',
+            amount: DAILY_RATE
+          })
+        } else {
+          workDetails.push({
+            date: dateStr,
+            day: dayOfWeek,
+            status: employeeHoliday.holiday_type,
+            amount: 0
+          })
+        }
       } else {
         workDays++
         workDetails.push({
@@ -130,31 +137,16 @@ const CalculationTab = () => {
       }
     }
 
-    const mealAmount = workDetails.reduce((sum, detail) => sum + detail.amount, 0)
+    // 총 식대 = (근무일수 + 오후반차) × 8,000원
+    const mealAmount = (workDays + afternoonHalfDays) * DAILY_RATE
 
     return {
       workDays,
-      holidayDays,
+      afternoonHalfDays,
       mealAmount,
       details: workDetails
     }
   }, [monthRange, holidays])
-
-  // 휴무 유형별 식대 계산
-  const getHolidayMealAmount = useCallback((holidayType) => {
-    switch (holidayType) {
-      case '오후반차':
-        return DAILY_RATE // 오후반차만 식대 지급
-      case '연차':
-      case '휴무':
-      case '오전반차':
-      case '오전+오후반차':
-      case '병가':
-      case '결근':
-      default:
-        return 0 // 나머지는 모두 식대 없음
-    }
-  }, [])
 
   // 전체 직원 식대 계산
   const allCalculations = useMemo(() => {
@@ -166,12 +158,12 @@ const CalculationTab = () => {
 
   // CSV 다운로드
   const downloadCSV = useCallback(() => {
-    const headers = ['이름', '팀', '근무일수', '휴무일수', '식대금액']
+    const headers = ['이름', '팀', '근무일수', '오후반차', '식대금액']
     const rows = allCalculations.map(({ employee, calculation }) => [
       employee.name,
       employee.team,
       calculation.workDays,
-      calculation.holidayDays,
+      calculation.afternoonHalfDays,
       calculation.mealAmount.toLocaleString()
     ])
     
@@ -253,108 +245,69 @@ const CalculationTab = () => {
         </button>
       </div>
 
-      {/* 팀별 직원 목록 */}
-      <div className="space-y-6">
-        {Object.entries(
-          allCalculations.reduce((acc, { employee, calculation }) => {
-            if (!acc[employee.team]) acc[employee.team] = []
-            acc[employee.team].push({ employee, calculation })
-            return acc
-          }, {})
-        ).map(([team, teamCalculations]) => (
-          <div key={team} className="bg-white rounded-lg shadow-sm overflow-hidden">
-            <div className="p-4 border-b border-gray-200">
-              <h4 className="text-lg font-semibold text-gray-900">{team}</h4>
-            </div>
-            <div className="divide-y divide-gray-200">
-              {teamCalculations.map(({ employee, calculation }) => (
-                <div
-                  key={employee.id}
-                  className="p-4 hover:bg-gray-50 transition-colors cursor-pointer"
-                  onClick={() => setSelectedEmployee(
-                    selectedEmployee?.id === employee.id ? null : { ...employee, calculation }
-                  )}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <User className="w-5 h-5 text-gray-400" />
-                      <div>
-                        <h5 className="font-medium text-gray-900">{employee.name}</h5>
-                        <p className="text-sm text-gray-500">
-                          근무 {calculation.workDays}일 · 휴무 {calculation.holidayDays}일
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="font-semibold text-gray-900">
-                        {calculation.mealAmount.toLocaleString()}원
+      {/* 계산 결과 테이블 */}
+      <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                직원 정보
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                근무일수
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                오후반차
+              </th>
+              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                식대금액
+              </th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {allCalculations.map(({ employee, calculation }) => (
+              <tr key={employee.id} className="hover:bg-gray-50">
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <div className="flex items-center">
+                    <div>
+                      <div className="text-sm font-medium text-gray-900">
+                        {employee.name}
                       </div>
                       <div className="text-sm text-gray-500">
-                        {calculation.workDays * DAILY_RATE === calculation.mealAmount
-                          ? '정상 지급'
-                          : '일부 차감'
-                        }
+                        {employee.team}
                       </div>
                     </div>
                   </div>
-
-                  {/* 상세 정보 */}
-                  {selectedEmployee?.id === employee.id && (
-                    <div className="mt-4 border-t border-gray-200 pt-4">
-                      <div className="bg-gray-50 rounded-lg overflow-hidden">
-                        <table className="min-w-full divide-y divide-gray-200">
-                          <thead className="bg-gray-100">
-                            <tr>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">날짜</th>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">요일</th>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">상태</th>
-                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">식대</th>
-                            </tr>
-                          </thead>
-                          <tbody className="bg-white divide-y divide-gray-200">
-                            {calculation.details.map((detail, index) => (
-                              <tr key={detail.date} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                                <td className="px-4 py-2 text-sm text-gray-900 whitespace-nowrap">
-                                  {detail.date}
-                                </td>
-                                <td className="px-4 py-2 text-sm text-gray-900 whitespace-nowrap">
-                                  {['일', '월', '화', '수', '목', '금', '토'][detail.day]}
-                                </td>
-                                <td className="px-4 py-2 text-sm whitespace-nowrap">
-                                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                    detail.status === '근무' ? 'bg-green-100 text-green-800' :
-                                    detail.status === '미재직' ? 'bg-gray-100 text-gray-800' :
-                                    detail.status === '일요일 휴무' ? 'bg-red-100 text-red-800' :
-                                    'bg-yellow-100 text-yellow-800'
-                                  }`}>
-                                    {detail.status}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-2 text-sm text-gray-900 text-right whitespace-nowrap">
-                                  {detail.amount.toLocaleString()}원
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                          <tfoot className="bg-gray-50">
-                            <tr>
-                              <td colSpan="3" className="px-4 py-2 text-sm font-medium text-gray-900">
-                                합계
-                              </td>
-                              <td className="px-4 py-2 text-sm font-medium text-gray-900 text-right">
-                                {calculation.mealAmount.toLocaleString()}원
-                              </td>
-                            </tr>
-                          </tfoot>
-                        </table>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  {calculation.workDays}일
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  {calculation.afternoonHalfDays}일
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                  {calculation.mealAmount.toLocaleString()}원
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot className="bg-gray-50">
+            <tr>
+              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                합계
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                {allCalculations.reduce((sum, { calculation }) => sum + calculation.workDays, 0)}일
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                {allCalculations.reduce((sum, { calculation }) => sum + calculation.afternoonHalfDays, 0)}일
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                {allCalculations.reduce((sum, { calculation }) => sum + calculation.mealAmount, 0).toLocaleString()}원
+              </td>
+            </tr>
+          </tfoot>
+        </table>
       </div>
     </div>
   )

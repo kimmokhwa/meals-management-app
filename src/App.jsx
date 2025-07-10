@@ -1,13 +1,21 @@
 import { useState, useEffect } from 'react'
-import { Users, Calendar, Calculator, Menu, X } from 'lucide-react'
+import { Users, Calendar, Calculator, Menu, X, Lock } from 'lucide-react'
 import EmployeeTab from './components/EmployeeTab'
 import HolidayTab from './components/HolidayTab'
 import CalculationTab from './components/CalculationTab'
+import './App.css'
 
 function App() {
-  const [activeTab, setActiveTab] = useState('employees')
+  const [activeTab, setActiveTab] = useState('holiday')
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const [isLocked, setIsLocked] = useState(true)
+  const [showUnlockModal, setShowUnlockModal] = useState(false)
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+
+  // 비밀번호 확인 (실제 구현시에는 더 안전한 방식으로 처리해야 함)
+  const ADMIN_PASSWORD = '1234'
 
   useEffect(() => {
     // 초기 로딩 애니메이션
@@ -18,21 +26,40 @@ function App() {
   }, [])
 
   const tabs = [
+    { id: 'holiday', name: '휴무 달력', icon: Calendar },
     { id: 'employees', name: '직원 관리', icon: Users },
-    { id: 'holidays', name: '휴무 달력', icon: Calendar },
     { id: 'calculations', name: '식대 계산', icon: Calculator }
   ]
 
+  const handleUnlock = () => {
+    if (password === ADMIN_PASSWORD) {
+      setIsLocked(false)
+      setShowUnlockModal(false)
+      setPassword('')
+      setError('')
+    } else {
+      setError('비밀번호가 올바르지 않습니다.')
+    }
+  }
+
+  const handleTabClick = (tab) => {
+    if ((tab === 'employees' || tab === 'calculations') && isLocked) {
+      setShowUnlockModal(true)
+    } else {
+      setActiveTab(tab)
+    }
+  }
+
   const renderTabContent = () => {
     switch (activeTab) {
-      case 'employees':
-        return <EmployeeTab />
-      case 'holidays':
+      case 'holiday':
         return <HolidayTab />
+      case 'employees':
+        return !isLocked && <EmployeeTab />
       case 'calculations':
-        return <CalculationTab />
+        return !isLocked && <CalculationTab />
       default:
-        return <EmployeeTab />
+        return <HolidayTab />
     }
   }
 
@@ -88,12 +115,12 @@ function App() {
               return (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => handleTabClick(tab.id)}
                   onKeyDown={(e) => {
                     if (e.key === 'ArrowLeft' && index > 0) {
-                      setActiveTab(tabs[index - 1].id)
+                      handleTabClick(tabs[index - 1].id)
                     } else if (e.key === 'ArrowRight' && index < tabs.length - 1) {
-                      setActiveTab(tabs[index + 1].id)
+                      handleTabClick(tabs[index + 1].id)
                     }
                   }}
                   role="tab"
@@ -124,7 +151,7 @@ function App() {
                   <button
                     key={tab.id}
                     onClick={() => {
-                      setActiveTab(tab.id)
+                      handleTabClick(tab.id)
                       setIsMobileMenuOpen(false)
                     }}
                     className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${
@@ -164,6 +191,56 @@ function App() {
           </p>
         </div>
       </footer>
+
+      {/* 잠금 해제 모달 */}
+      {showUnlockModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              관리자 인증
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+                  비밀번호
+                </label>
+                <input
+                  type="password"
+                  id="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleUnlock()}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-teal-500 focus:ring-teal-500"
+                  placeholder="비밀번호를 입력하세요"
+                />
+                {error && (
+                  <p className="mt-2 text-sm text-red-600">
+                    {error}
+                  </p>
+                )}
+              </div>
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={() => {
+                    setShowUnlockModal(false)
+                    setPassword('')
+                    setError('')
+                  }}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-md border border-gray-300"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={handleUnlock}
+                  className="px-4 py-2 text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-md"
+                >
+                  확인
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
