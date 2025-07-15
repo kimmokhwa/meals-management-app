@@ -52,6 +52,13 @@ export const calculateWorkDays = (employee, holidays, year, month) => {
         // 오후반차는 오전 근무 인정
         workDays++
         halfDays++
+      } else if (
+        dayHoliday.holiday_type === '오전반차' ||
+        dayHoliday.holiday_type === '오전연차' ||
+        dayHoliday.holiday_type === '오전+오후반차'
+      ) {
+        // 오전반차, 오전연차, 오전+오후반차는 근무일 0, 식대 0
+        offDays++
       } else if (dayHoliday.holiday_type.includes('반차')) {
         // 기타 반차는 0.5일 근무
         workDays += 0.5
