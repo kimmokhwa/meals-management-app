@@ -236,24 +236,24 @@ const EmployeeTab = () => {
   // 팀별 배경색과 보더색 반환
   const getTeamBackgroundColor = useCallback((teamName) => {
     const teamColors = {
-      '의국팀': 'bg-yellow-100',
-      '상담팀': 'bg-red-100', 
-      '코디팀': 'bg-green-100',
-      '간호팀': 'bg-blue-100',
-      '피부팀': 'bg-cyan-100',
-      '경영지원팀': 'bg-orange-100'
+      '의국팀': 'bg-blue-50',
+      '상담팀': 'bg-blue-100', 
+      '코디팀': 'bg-blue-200',
+      '간호팀': 'bg-blue-300',
+      '피부팀': 'bg-blue-400',
+      '경영지원팀': 'bg-blue-500'
     }
     return teamColors[teamName] || 'bg-gray-100'
   }, [])
 
   const getTeamBorderColor = useCallback((teamName) => {
     const teamBorderColors = {
-      '의국팀': 'border-l-yellow-400',
-      '상담팀': 'border-l-red-400', 
-      '코디팀': 'border-l-green-400',
-      '간호팀': 'border-l-blue-400',
-      '피부팀': 'border-l-cyan-400',
-      '경영지원팀': 'border-l-orange-400'
+      '의국팀': 'border-l-blue-200',
+      '상담팀': 'border-l-blue-300', 
+      '코디팀': 'border-l-blue-400',
+      '간호팀': 'border-l-blue-500',
+      '피부팀': 'border-l-blue-600',
+      '경영지원팀': 'border-l-blue-700'
     }
     return teamBorderColors[teamName] || 'border-l-gray-400'
   }, [])
@@ -414,23 +414,23 @@ const EmployeeTab = () => {
               onDeleteEmployee={deleteEmployee}
               getTeamBackgroundColor={(team) => {
                 switch (team) {
-                  case '의국팀': return 'bg-[#FEF3C7]'
-                  case '상담팀': return 'bg-[#D1FAE5]'
-                  case '코디팀': return 'bg-[#CFFAFE]'
-                  case '간호팀': return 'bg-[#FED7AA]'
-                  case '피부팀': return 'bg-[#FECACA]'
-                  case '경영지원팀': return 'bg-[#FECDD3]'
+                  case '의국팀': return 'bg-blue-50'
+                  case '상담팀': return 'bg-blue-100'
+                  case '코디팀': return 'bg-blue-200'
+                  case '간호팀': return 'bg-blue-300'
+                  case '피부팀': return 'bg-blue-400'
+                  case '경영지원팀': return 'bg-blue-500'
                   default: return 'bg-gray-50'
                 }
               }}
               getTeamBorderColor={(team) => {
                 switch (team) {
-                  case '의국팀': return 'border-[#F59E0B]'
-                  case '상담팀': return 'border-[#10B981]'
-                  case '코디팀': return 'border-[#3B82F6]'
-                  case '간호팀': return 'border-[#F59E0B]'
-                  case '피부팀': return 'border-[#EF4444]'
-                  case '경영지원팀': return 'border-[#6B7280]'
+                  case '의국팀': return 'border-blue-200'
+                  case '상담팀': return 'border-blue-300'
+                  case '코디팀': return 'border-blue-400'
+                  case '간호팀': return 'border-blue-500'
+                  case '피부팀': return 'border-blue-600'
+                  case '경영지원팀': return 'border-blue-700'
                   default: return 'border-gray-200'
                 }
               }}

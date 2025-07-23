@@ -26,9 +26,9 @@ function App() {
   }, [])
 
   const tabs = [
-    { id: 'holiday', name: '휴무 달력', icon: Calendar },
-    { id: 'employees', name: '직원 관리', icon: Users },
-    { id: 'calculations', name: '식대 계산', icon: Calculator }
+    { id: 'holiday', name: '📅 휴무 달력', icon: Calendar },
+    { id: 'employees', name: '👥 직원 관리', icon: Users },
+    { id: 'calculations', name: '💰 식대 계산', icon: Calculator }
   ]
 
   const handleUnlock = () => {
@@ -76,16 +76,37 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* 떠다니는 하트들 */}
+      <div className="floating-heart">💗</div>
+      <div className="floating-heart">💗</div>
+      <div className="floating-heart">💗</div>
+      <div className="floating-heart">💗</div>
+      <div className="floating-heart">💗</div>
+      <div className="floating-heart">💗</div>
+      <div className="floating-heart">💗</div>
+      <div className="floating-heart">💗</div>
+      <div className="floating-heart">💗</div>
+      <div className="floating-heart">💗</div>
+      <div className="floating-heart">💗</div>
+      <div className="floating-heart">💗</div>
+      <div className="floating-heart">💗</div>
+      <div className="floating-heart">💗</div>
+      <div className="floating-heart">💗</div>
+      <div className="floating-heart">💗</div>
+      <div className="floating-heart">💗</div>
+      <div className="floating-heart">💗</div>
+      <div className="floating-heart">💗</div>
+      <div className="floating-heart">💗</div>
       {/* 헤더 */}
-      <header className="bg-gradient-to-r from-primary-50 via-primary-100 to-primary-200 shadow-sm" role="banner">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+      <header className="bg-gradient-to-r from-pink-100 via-purple-100 to-blue-100 shadow-lg border-b-2 border-pink-200" role="banner">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex items-center justify-between">
             <div className="flex-1">
-              <h1 className="text-2xl font-bold text-primary-700 flex items-center gap-2 animate-fade-in">
-                <span role="img" aria-label="휴무" className="text-3xl">📅</span>
+              <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-3 animate-fade-in">
+                <span role="img" aria-label="휴무" className="text-4xl">🎯</span>
                 <span>휴무관리 시스템</span>
+                <span className="text-2xl">✨</span>
               </h1>
-              <p className="text-primary-600 mt-1 animate-slide-in">직원 휴무 및 식대 관리 시스템</p>
             </div>
             
             {/* 모바일 메뉴 버튼 */}
@@ -106,7 +127,7 @@ function App() {
       </header>
 
       {/* 탭 네비게이션 */}
-      <div className="bg-white shadow-sm">
+      <div className="bg-gradient-to-r from-white to-gray-50 shadow-md border-b border-pink-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* 데스크톱 네비게이션 */}
           <nav className="hidden md:flex space-x-8" role="tablist" aria-label="메인 네비게이션">
@@ -127,15 +148,12 @@ function App() {
                   aria-selected={activeTab === tab.id}
                   aria-controls={`${tab.id}-panel`}
                   tabIndex={activeTab === tab.id ? 0 : -1}
-                  className={`group flex items-center space-x-2 py-4 px-3 border-b-2 font-medium text-sm transition-all hover:bg-primary-50 ${
+                  className={`group flex items-center space-x-2 py-4 px-4 border-b-2 font-bold text-sm transition-all duration-200 hover:bg-pink-50 rounded-t-lg ${
                     activeTab === tab.id
-                      ? 'border-primary-500 text-primary-600'
-                      : 'border-transparent text-gray-500 hover:text-primary-600 hover:border-primary-300'
+                      ? 'border-pink-400 text-pink-600 bg-pink-50'
+                      : 'border-transparent text-gray-500 hover:text-pink-600 hover:border-pink-300'
                   }`}
                 >
-                  <Icon className={`w-5 h-5 transition-colors ${
-                    activeTab === tab.id ? 'text-primary-500' : 'text-gray-400 group-hover:text-primary-500'
-                  }`} aria-hidden="true" />
                   <span>{tab.name}</span>
                 </button>
               )
@@ -154,14 +172,13 @@ function App() {
                       handleTabClick(tab.id)
                       setIsMobileMenuOpen(false)
                     }}
-                    className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                    className={`w-full flex items-center px-3 py-3 text-sm font-bold rounded-lg transition-all duration-200 ${
                       activeTab === tab.id
-                        ? 'bg-primary-100 text-primary-600'
-                        : 'text-gray-600 hover:bg-primary-50 hover:text-primary-600'
+                        ? 'bg-pink-100 text-pink-600 shadow-md'
+                        : 'text-gray-600 hover:bg-pink-50 hover:text-pink-600'
                     }`}
                   >
-                    <Icon className="w-5 h-5 mr-2" aria-hidden="true" />
-                    {tab.name}
+                                      {tab.name}
                   </button>
                 )
               })}

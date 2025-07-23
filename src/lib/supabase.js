@@ -282,3 +282,25 @@ export const performance = {
     }
   }
 } 
+
+// month_locks 테이블 자동 생성 (앱 최초 실행 시)
+export async function ensureMonthLocksTable() {
+  // Supabase는 일반적으로 클라이언트에서 DDL을 직접 실행하지 않으나,
+  // 관리 권한이 있다고 가정하고 SQL 실행 API를 사용합니다.
+  try {
+    const { error } = await supabase.rpc('execute_sql', {
+      sql: `
+        create table if not exists month_locks (
+          year int,
+          month int,
+          is_locked boolean,
+          primary key (year, month)
+        );
+      `
+    });
+    if (error) throw error;
+  } catch (e) {
+    // 테이블 생성 실패 시 무시 (이미 존재하거나 권한 없음)
+    console.warn('month_locks 테이블 자동 생성 실패:', e.message);
+  }
+} 

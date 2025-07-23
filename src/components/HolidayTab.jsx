@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { ChevronLeft, ChevronRight, Calendar, Download, X, Lock, Unlock } from 'lucide-react'
-import { supabase, HOLIDAY_TYPES, TEAMS } from '../lib/supabase'
+import { supabase, HOLIDAY_TYPES, TEAMS, ensureMonthLocksTable } from '../lib/supabase'
 import html2canvas from 'html2canvas'
 import jsPDF from 'jspdf'
 
@@ -26,6 +26,26 @@ const HolidayTab = () => {
   const [isCurrentMonthLocked, setIsCurrentMonthLocked] = useState(false)
   const [showUnlockModal, setShowUnlockModal] = useState(false)
   const [unlockPassword, setUnlockPassword] = useState('')
+
+  // Supabase에서 현재 월 잠금 상태 불러오기
+  useEffect(() => {
+    const fetchMonthLock = async () => {
+      const year = currentDate.getFullYear();
+      const month = currentDate.getMonth() + 1;
+      const { data, error } = await supabase
+        .from('month_locks')
+        .select('is_locked')
+        .eq('year', year)
+        .eq('month', month)
+        .single();
+      if (!error && data) {
+        setIsCurrentMonthLocked(!!data.is_locked);
+      } else {
+        setIsCurrentMonthLocked(false);
+      }
+    };
+    fetchMonthLock();
+  }, [currentDate]);
   
   // 테이블과 달력 참조
   const tableRef = useRef(null)
@@ -152,50 +172,49 @@ const HolidayTab = () => {
     }
   }, [fetchHolidays, isCurrentMonthLocked])
 
-  // 월별 잠금 토글
-  const toggleMonthLock = useCallback(() => {
-    const year = currentDate.getFullYear()
-    const month = currentDate.getMonth() + 1
-    
+  // 월별 잠금 토글 (잠금 설정)
+  const toggleMonthLock = useCallback(async () => {
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth() + 1;
     if (isCurrentMonthLocked) {
-      // 잠금 해제 시 비밀번호 확인
-      setShowUnlockModal(true)
+      setShowUnlockModal(true);
     } else {
-      // 잠금 설정
       if (confirm(`${year}년 ${month}월을 잠금하시겠습니까?\n잠금 후에는 휴무 수정이 불가능합니다.`)) {
         try {
-          // monthLockManager.setMonthLock(year, month, true)
-          setIsCurrentMonthLocked(true)
-          alert('월별 잠금이 설정되었습니다.')
+          // upsert: 있으면 수정, 없으면 추가
+          const { error } = await supabase
+            .from('month_locks')
+            .upsert([{ year, month, is_locked: true }], { onConflict: ['year', 'month'] });
+          if (error) throw error;
+          setIsCurrentMonthLocked(true);
+          alert('월별 잠금이 설정되었습니다.');
         } catch (error) {
-          console.error('잠금 설정 실패:', error)
-          alert('잠금 설정에 실패했습니다.')
+          console.error('잠금 설정 실패:', error);
+          alert('잠금 설정에 실패했습니다.');
         }
       }
     }
-  }, [currentDate, isCurrentMonthLocked])
+  }, [currentDate, isCurrentMonthLocked]);
 
   // 잠금 해제 처리
-  const handleUnlockConfirm = useCallback(() => {
-    // if (!monthLockManager.checkUnlockPassword(unlockPassword)) {
-    //   alert('비밀번호가 올바르지 않습니다.')
-    //   return
-    // }
-    
-    const year = currentDate.getFullYear()
-    const month = currentDate.getMonth() + 1
-    
+  const handleUnlockConfirm = useCallback(async () => {
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth() + 1;
     try {
-      // monthLockManager.setMonthLock(year, month, false)
-      setIsCurrentMonthLocked(false)
-      setShowUnlockModal(false)
-      setUnlockPassword('')
-      alert('월별 잠금이 해제되었습니다.')
+      // 잠금 해제: is_locked false로 업데이트
+      const { error } = await supabase
+        .from('month_locks')
+        .upsert([{ year, month, is_locked: false }], { onConflict: ['year', 'month'] });
+      if (error) throw error;
+      setIsCurrentMonthLocked(false);
+      setShowUnlockModal(false);
+      setUnlockPassword('');
+      alert('월별 잠금이 해제되었습니다.');
     } catch (error) {
-      console.error('잠금 해제 실패:', error)
-      alert('잠금 해제에 실패했습니다.')
+      console.error('잠금 해제 실패:', error);
+      alert('잠금 해제에 실패했습니다.');
     }
-  }, [currentDate, unlockPassword])
+  }, [currentDate]);
 
   // 잠금 해제 모달 닫기
   const handleUnlockCancel = useCallback(() => {
@@ -547,7 +566,10 @@ const HolidayTab = () => {
       const imgHeight = canvas.height * imgWidth / canvas.width;
       
       const pdf = new jsPDF('p', 'mm', 'a4'); // 세로 방향으로 설정
-      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, imgWidth, imgHeight);
+      
+      // 상하 여백을 위해 이미지 높이를 조정 (5mm 여백 추가)
+      const adjustedImgHeight = Math.min(imgHeight, pageHeight - 5);
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, imgWidth, adjustedImgHeight);
       
       // PDF 다운로드
       pdf.save(fileName);
@@ -648,42 +670,54 @@ const HolidayTab = () => {
   return (
     <div className="space-y-6">
       {/* 헤더 */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-2">
-          <Calendar className="w-6 h-6 text-teal-600" />
-          <h2 className="text-xl font-bold text-gray-900">휴무 달력</h2>
-        </div>
-        <div className="flex items-center space-x-2">
-          {/* PDF 출력 버튼 */}
-          <button
-            onClick={handlePrintPDF}
-            className="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 flex items-center space-x-1"
-          >
-            <Download className="w-4 h-4" />
-            <span>PDF 출력</span>
-          </button>
-          
-          {/* 잠금 토글 버튼 */}
-          <button
-            onClick={toggleMonthLock}
-            className={`px-3 py-2 rounded flex items-center space-x-1 ${
-              isCurrentMonthLocked
-                ? 'bg-red-500 hover:bg-red-600'
-                : 'bg-green-500 hover:bg-green-600'
-            } text-white`}
-          >
-            {isCurrentMonthLocked ? (
-              <>
-                <Lock className="w-4 h-4" />
-                <span>잠금됨</span>
-              </>
-            ) : (
-              <>
-                <Unlock className="w-4 h-4" />
-                <span>잠금해제</span>
-              </>
-            )}
-          </button>
+      <div className="bg-gradient-to-r from-pink-100 via-purple-100 to-blue-100 rounded-xl p-6 shadow-lg border-2 border-pink-200">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div className="text-4xl">📅</div>
+            <div>
+              <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                휴무 달력 
+                <span className="text-2xl">✨</span>
+              </h2>
+              <p className="text-sm text-gray-600 mt-1 flex items-center gap-1">
+                <span className="text-lg">😴</span>
+                쉬는게 최고야~ 
+                <span className="text-lg">💤</span>
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center space-x-3">
+            {/* PDF 출력 버튼 */}
+            <button
+              onClick={handlePrintPDF}
+              className="px-4 py-2 bg-gradient-to-r from-blue-400 to-blue-600 text-white rounded-lg hover:from-blue-500 hover:to-blue-700 flex items-center space-x-2 shadow-md transition-all duration-200 transform hover:scale-105"
+            >
+              <Download className="w-4 h-4" />
+              <span>📄 PDF 출력</span>
+            </button>
+            
+            {/* 잠금 토글 버튼 */}
+            <button
+              onClick={toggleMonthLock}
+              className={`px-4 py-2 rounded-lg flex items-center space-x-2 shadow-md transition-all duration-200 transform hover:scale-105 ${
+                isCurrentMonthLocked
+                  ? 'bg-gradient-to-r from-red-400 to-red-600 hover:from-red-500 hover:to-red-700'
+                  : 'bg-gradient-to-r from-green-400 to-green-600 hover:from-green-500 hover:to-green-700'
+              } text-white`}
+            >
+              {isCurrentMonthLocked ? (
+                <>
+                  <Lock className="w-4 h-4" />
+                  <span>🔒 잠금됨</span>
+                </>
+              ) : (
+                <>
+                  <Unlock className="w-4 h-4" />
+                  <span>🔓 잠금해제</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -708,19 +742,19 @@ const HolidayTab = () => {
 
       {/* 메인 컨텐츠 */}
       <div className="bg-white rounded-lg shadow-sm">
-        <div className="p-4" ref={calendarRef}>
+        <div className="p-4 pt-6 pb-2" ref={calendarRef}>
           {/* 정말 달력처럼 표시 */}
           <div className="overflow-x-auto">
             <table className="w-full border-collapse border-2 border-gray-400 table-fixed">
               <thead>
                 <tr>
-                  <th className="bg-gray-50 border border-gray-400 p-1 text-center font-medium text-gray-900 w-12 text-base">팀</th>
-                  <th className="bg-gray-50 border border-gray-400 p-1 text-center font-medium text-base">월</th>
-                  <th className="bg-gray-50 border border-gray-400 p-1 text-center font-medium text-base">화</th>
-                  <th className="bg-gray-50 border border-gray-400 p-1 text-center font-medium text-base">수</th>
-                  <th className="bg-gray-50 border border-gray-400 p-1 text-center font-medium text-base">목</th>
-                  <th className="bg-gray-50 border border-gray-400 p-1 text-center font-medium text-base">금</th>
-                  <th className="bg-gray-50 border border-gray-400 p-1 text-center font-medium text-blue-500 text-base">토</th>
+                  <th className="bg-gray-50 border border-gray-400 p-1 text-center font-bold text-gray-900 w-12 text-base">팀</th>
+                  <th className="bg-gray-50 border border-gray-400 p-1 text-center font-bold text-base">월</th>
+                  <th className="bg-gray-50 border border-gray-400 p-1 text-center font-bold text-base">화</th>
+                  <th className="bg-gray-50 border border-gray-400 p-1 text-center font-bold text-base">수</th>
+                  <th className="bg-gray-50 border border-gray-400 p-1 text-center font-bold text-base">목</th>
+                  <th className="bg-gray-50 border border-gray-400 p-1 text-center font-bold text-base">금</th>
+                  <th className="bg-gray-50 border border-gray-400 p-1 text-center font-bold text-blue-500 text-base">토</th>
                 </tr>
               </thead>
               <tbody>
@@ -786,23 +820,23 @@ const HolidayTab = () => {
                   ];
 
                   const teamColors = {
-                    '의국팀': 'bg-[#E8F5E9]',
-                    '코디팀': 'bg-[#E3F2FD]',
-                    '상담팀': 'bg-[#FFF3E0]',
-                    '간호팀': 'bg-[#F3E5F5]',
-                    '피부팀': 'bg-[#FCE4EC]',
-                    '경영지원팀': 'bg-[#FAFAFA]'
+                    '의국팀': 'bg-blue-50',
+                    '코디팀': 'bg-blue-100',
+                    '상담팀': 'bg-blue-200',
+                    '간호팀': 'bg-blue-300',
+                    '피부팀': 'bg-blue-400',
+                    '경영지원팀': 'bg-blue-500'
                   };
                   
                   return calendarDays.map((week, weekIndex) => (
                     <React.Fragment key={weekIndex}>
                       {/* 날짜 행 */}
                       <tr>
-                        <td className="bg-gray-200 border border-gray-400 px-1 py-0.5 text-center font-medium text-sm h-[48px]">
+                        <td className="bg-gray-200 border border-gray-400 px-1 py-0.5 text-center font-bold text-sm h-[48px]">
                           {weekIndex + 1}주
                         </td>
                         {week.map((date, dayIndex) => (
-                          <td key={dayIndex} className="bg-gray-200 border border-gray-400 px-1 py-0.5 text-center font-medium text-sm h-[48px]">
+                          <td key={dayIndex} className="bg-gray-200 border border-gray-400 px-1 py-0.5 text-center font-bold text-sm h-[48px]">
                             {date ? date.getDate() : ''}
                           </td>
                         ))}
@@ -810,7 +844,7 @@ const HolidayTab = () => {
                       {/* 팀별 행 */}
                       {TEAMS.map((team) => (
                         <tr key={`${weekIndex}-${team}`}>
-                          <td className={`bg-white border border-gray-400 px-1 py-0.5 font-medium text-center text-sm text-blue-600 h-[48px] ${teamColors[team]}`}>
+                          <td className={`bg-white border border-gray-400 px-1 py-0.5 font-bold text-center text-sm text-blue-800 h-[48px] ${teamColors[team]}`}>
                             {team.replace('팀', '').replace('경영지원', '경영')}
                           </td>
                           {week.map((date, dayIndex) => {
@@ -827,7 +861,7 @@ const HolidayTab = () => {
                             return (
                               <td 
                                 key={dayIndex}
-                                className={`bg-white border border-gray-400 px-1 py-0.5 text-xs cursor-pointer hover:bg-gray-50 h-[48px] min-w-[50px] break-all ${teamColors[team].replace('border-l-4', '')}`}
+                                className={`bg-white border border-gray-400 px-1 py-0.5 text-xs cursor-pointer hover:bg-gray-50 h-[48px] min-w-[60px] break-all ${teamColors[team].replace('border-l-4', '')}`}
                                 onClick={() => handleDateClick(date)}
                               >
                                 <div className="flex flex-col h-full">
