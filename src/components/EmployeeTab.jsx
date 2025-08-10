@@ -7,6 +7,12 @@ const EmployeeTab = () => {
   const [loading, setLoading] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)
   const [editingEmployee, setEditingEmployee] = useState(null)
+  const [editForm, setEditForm] = useState({
+    name: '',
+    team: '',
+    join_date: '',
+    leave_date: ''
+  })
   const [newEmployee, setNewEmployee] = useState({
     name: '',
     team: '',
@@ -40,6 +46,18 @@ const EmployeeTab = () => {
     setNotification({ message, type })
     setTimeout(() => setNotification(null), 3000)
   }, [])
+
+  // 편집 시작 시 폼 초기화
+  useEffect(() => {
+    if (editingEmployee) {
+      setEditForm({
+        name: editingEmployee.name || '',
+        team: editingEmployee.team || '',
+        join_date: editingEmployee.join_date || '',
+        leave_date: editingEmployee.leave_date || ''
+      })
+    }
+  }, [editingEmployee])
 
   // 직원 추가
   const addEmployee = useCallback(async () => {
@@ -91,6 +109,38 @@ const EmployeeTab = () => {
       showNotification(error.message, 'error')
     }
   }, [fetchEmployees, showNotification])
+
+  // 직원 정보 업데이트
+  const updateEmployee = useCallback(async () => {
+    if (!editingEmployee) return
+    try {
+      const updatePayload = {
+        name: editForm.name,
+        team: editForm.team,
+        join_date: editForm.join_date,
+        leave_date: editForm.leave_date ? editForm.leave_date : null
+      }
+
+      const { error } = await supabase
+        .from('employees')
+        .update(updatePayload)
+        .eq('id', editingEmployee.id)
+
+      if (error) throw error
+
+      setEditingEmployee(null)
+      await fetchEmployees()
+      showNotification('직원 정보가 업데이트되었습니다.')
+    } catch (error) {
+      console.error('직원 정보 업데이트 실패:', error)
+      showNotification(`업데이트 실패: ${error.message}`, 'error')
+    }
+  }, [editingEmployee, editForm, fetchEmployees, showNotification])
+
+  // 편집 폼 변경 핸들러
+  const handleEditFieldChange = useCallback((field, value) => {
+    setEditForm(prev => ({ ...prev, [field]: value }))
+  }, [])
 
   // CSV 파일 다운로드
   const downloadCSV = useCallback(() => {
@@ -436,6 +486,94 @@ const EmployeeTab = () => {
               }}
             />
           ))}
+        </div>
+      )}
+
+      {/* 직원 편집 모달 */}
+      {editingEmployee && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl p-6 border border-gray-200">
+            <div className="mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">직원 정보 수정</h3>
+              <p className="text-sm text-gray-500 mt-1">퇴사일을 포함해 직원 정보를 수정할 수 있습니다.</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">이름</label>
+                <input
+                  type="text"
+                  value={editForm.name}
+                  onChange={(e) => handleEditFieldChange('name', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#3B82F6] focus:border-[#3B82F6]"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">팀</label>
+                <select
+                  value={editForm.team}
+                  onChange={(e) => handleEditFieldChange('team', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#3B82F6] focus:border-[#3B82F6]"
+                >
+                  <option value="">팀 선택</option>
+                  {TEAMS.map(team => (
+                    <option key={team} value={team}>{team}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">입사일</label>
+                <input
+                  type="date"
+                  value={editForm.join_date}
+                  onChange={(e) => handleEditFieldChange('join_date', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#3B82F6] focus:border-[#3B82F6]"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">퇴사일</label>
+                <div className="flex gap-2">
+                  <input
+                    type="date"
+                    value={editForm.leave_date || ''}
+                    onChange={(e) => handleEditFieldChange('leave_date', e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#3B82F6] focus:border-[#3B82F6]"
+                  />
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleEditFieldChange('leave_date', new Date().toISOString().split('T')[0])}
+                    className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+                  >
+                    오늘로 설정
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleEditFieldChange('leave_date', '')}
+                    className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+                  >
+                    퇴사일 제거
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                type="button"
+                onClick={() => setEditingEmployee(null)}
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={updateEmployee}
+                className="px-4 py-2 bg-[#3B82F6] text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                저장
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
